@@ -9,6 +9,9 @@ import { X } from 'lucide-react';
 export default function Home() {
   const [locations, setLocations] = useState<Location[]>(INITIAL_LOCATIONS);
   const [toast, setToast] = useState<{ visible: boolean; message: string; title: string } | null>(null);
+  const [routeInfo, setRouteInfo] = useState<{ distance: string; duration: string } | null>(null);
+  const [routePlaces, setRoutePlaces] = useState<{ start: google.maps.places.PlaceResult | null; end: google.maps.places.PlaceResult | null } | null>(null);
+  const [detourDistance, setDetourDistance] = useState(1); // km
 
   const handleUpdateProfile = (persona: string) => {
     const filtered = filterLocations(persona);
@@ -16,6 +19,18 @@ export default function Home() {
 
     // Reset toast if any
     setToast(null);
+  };
+
+  const handlePlanRoute = (start: google.maps.places.PlaceResult | null, end: google.maps.places.PlaceResult | null) => {
+    setRoutePlaces({ start, end });
+  };
+
+  const handleRouteCalculated = (distance: string, duration: string) => {
+    setRouteInfo({ distance, duration });
+  };
+
+  const handleDetourDistanceChange = (distance: number) => {
+    setDetourDistance(distance);
   };
 
   const handleNearTarget = (target: Location) => {
@@ -29,11 +44,22 @@ export default function Home() {
   return (
     <main className="flex h-screen w-screen flex-col md:flex-row bg-white overflow-hidden">
       {/* Sidebar */}
-      <Sidebar onUpdateProfile={handleUpdateProfile} />
+      <Sidebar
+        onUpdateProfile={handleUpdateProfile}
+        onPlanRoute={handlePlanRoute}
+        onDetourDistanceChange={handleDetourDistanceChange}
+        routeInfo={routeInfo}
+      />
 
       {/* Map Area */}
       <div className="flex-1 relative">
-        <MapComponent locations={locations} onNearTarget={handleNearTarget} />
+        <MapComponent
+          locations={locations}
+          onNearTarget={handleNearTarget}
+          routePlaces={routePlaces}
+          onRouteCalculated={handleRouteCalculated}
+          detourDistance={detourDistance}
+        />
 
         {/* Beautiful Toast Notification */}
         {toast && toast.visible && (

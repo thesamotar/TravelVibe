@@ -8,18 +8,26 @@ import { Location } from '@/utils/mockData';
 interface MapComponentProps {
     locations: Location[];
     onNearTarget: (target: Location) => void;
+    routePlaces: { start: google.maps.places.PlaceResult | null; end: google.maps.places.PlaceResult | null } | null;
+    onRouteCalculated: (distance: string, duration: string) => void;
+    detourDistance: number;
 }
 
-export default function MapComponent({ locations, onNearTarget }: MapComponentProps) {
+export default function MapComponent({ locations, onNearTarget, routePlaces, onRouteCalculated, detourDistance }: MapComponentProps) {
     const mapRef = useRef<HTMLDivElement>(null);
     const [map, setMap] = useState<google.maps.Map | null>(null);
     const [markers, setMarkers] = useState<google.maps.Marker[]>([]);
     const [userMarker, setUserMarker] = useState<google.maps.Marker | null>(null);
     const [isSimulating, setIsSimulating] = useState(false);
     const simulationInterval = useRef<NodeJS.Timeout | null>(null);
+    const [directionsRenderer, setDirectionsRenderer] = useState<google.maps.DirectionsRenderer | null>(null);
+    const [routePolyline, setRoutePolyline] = useState<google.maps.Polyline | null>(null);
+    const [startMarker, setStartMarker] = useState<google.maps.Marker | null>(null);
+    const [endMarker, setEndMarker] = useState<google.maps.Marker | null>(null);
 
-    // Default SF User location
-    const initialUserPos = { lat: 37.7739, lng: -122.4312 }; // Somewhere central
+    // Default SF User location (fallback)
+    const defaultPos = { lat: 37.7749, lng: -122.4194 };
+    const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
     useEffect(() => {
         const initMap = async () => {
@@ -39,19 +47,46 @@ export default function MapComponent({ locations, onNearTarget }: MapComponentPr
                 const { Map } = await importLibrary('maps') as google.maps.MapsLibrary;
                 const { Marker } = await importLibrary('marker') as google.maps.MarkerLibrary;
 
+                // Get user's current location
+                const getUserLocation = (): Promise<{ lat: number; lng: number }> => {
+                    return new Promise((resolve) => {
+                        if (navigator.geolocation) {
+                            navigator.geolocation.getCurrentPosition(
+                                (position) => {
+                                    const userPos = {
+                                        lat: position.coords.latitude,
+                                        lng: position.coords.longitude,
+                                    };
+                                    setUserLocation(userPos);
+                                    resolve(userPos);
+                                },
+                                (error) => {
+                                    console.warn('Geolocation error:', error.message);
+                                    resolve(defaultPos);
+                                }
+                            );
+                        } else {
+                            console.warn('Geolocation not supported');
+                            resolve(defaultPos);
+                        }
+                    });
+                };
+
+                const initialPos = await getUserLocation();
+
                 if (mapRef.current) {
                     const mapInstance = new Map(mapRef.current, {
-                        center: { lat: 37.7749, lng: -122.4194 },
+                        center: initialPos,
                         zoom: 13,
-                        mapId: 'DEMO_MAP_ID', // Required for advanced markers if used, or just placeholder
+                        mapId: 'DEMO_MAP_ID',
                         disableDefaultUI: false,
                         clickableIcons: false,
                     });
                     setMap(mapInstance);
 
-                    // Create User Marker
+                    // Create User Marker at actual user location
                     const user = new Marker({
-                        position: initialUserPos,
+                        position: initialPos,
                         map: mapInstance,
                         title: 'You',
                         icon: {
@@ -92,13 +127,116 @@ export default function MapComponent({ locations, onNearTarget }: MapComponentPr
         setMarkers(newMarkers);
     }, [map, locations]);
 
+    // Handle Route Planning
+    useEffect(() => {
+        if (!map || !routePlaces || !routePlaces.start || !routePlaces.end) {
+            // Clear route if no places
+            if (routePolyline) {
+                routePolyline.setMap(null);
+                setRoutePolyline(null);
+            }
+            if (startMarker) {
+                startMarker.setMap(null);
+                setStartMarker(null);
+            }
+            if (endMarker) {
+                endMarker.setMap(null);
+                setEndMarker(null);
+            }
+            return;
+        }
+
+        const calculateRoute = async () => {
+            const directionsService = new google.maps.DirectionsService();
+
+            const startLocation = routePlaces.start?.geometry?.location;
+            const endLocation = routePlaces.end?.geometry?.location;
+
+            if (!startLocation || !endLocation) return;
+
+            try {
+                const result = await directionsService.route({
+                    origin: startLocation,
+                    destination: endLocation,
+                    travelMode: google.maps.TravelMode.DRIVING,
+                });
+
+                if (result.routes[0]) {
+                    const route = result.routes[0];
+                    const leg = route.legs[0];
+
+                    // Clear old polyline
+                    if (routePolyline) {
+                        routePolyline.setMap(null);
+                    }
+
+                    // Draw new polyline
+                    const polyline = new google.maps.Polyline({
+                        path: route.overview_path,
+                        strokeColor: '#4285F4',
+                        strokeOpacity: 0.8,
+                        strokeWeight: 5,
+                        map,
+                    });
+                    setRoutePolyline(polyline);
+
+                    // Add start marker
+                    if (startMarker) startMarker.setMap(null);
+                    const newStartMarker = new google.maps.Marker({
+                        position: startLocation,
+                        map,
+                        title: 'Start',
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            scale: 10,
+                            fillColor: '#34A853',
+                            fillOpacity: 1,
+                            strokeColor: 'white',
+                            strokeWeight: 2,
+                        },
+                    });
+                    setStartMarker(newStartMarker);
+
+                    // Add end marker
+                    if (endMarker) endMarker.setMap(null);
+                    const newEndMarker = new google.maps.Marker({
+                        position: endLocation,
+                        map,
+                        title: 'End',
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            scale: 10,
+                            fillColor: '#EA4335',
+                            fillOpacity: 1,
+                            strokeColor: 'white',
+                            strokeWeight: 2,
+                        },
+                    });
+                    setEndMarker(newEndMarker);
+
+                    // Fit bounds to show entire route
+                    const bounds = new google.maps.LatLngBounds();
+                    route.overview_path.forEach(point => bounds.extend(point));
+                    map.fitBounds(bounds);
+
+                    // Call back with route info
+                    onRouteCalculated(leg.distance?.text || '', leg.duration?.text || '');
+                }
+            } catch (error) {
+                console.error('Error calculating route:', error);
+            }
+        };
+
+        calculateRoute();
+    }, [map, routePlaces]);
+
     const startSimulation = () => {
         if (!map || !userMarker || locations.length === 0) return;
 
         // Pick the first location in the list as the target
         const target = locations[0];
         const targetPos = { lat: target.lat, lng: target.lng };
-        let currentPos = userMarker.getPosition()?.toJSON() || initialUserPos;
+        let currentPos = userMarker.getPosition()?.toJSON() || defaultPos;
 
         setIsSimulating(true);
 
