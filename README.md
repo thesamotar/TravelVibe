@@ -103,6 +103,26 @@ Get your API key at: https://console.cloud.google.com/
 
 ## Version History
 
+### Version 1.2.0 - January 11, 2026 (Commit: 0a5de69)
+
+**Route Path Traversal Feature**
+
+- 🛤️ **Route-Based Walking Simulation**
+  - Simulate Walking now traverses along the calculated route path
+  - User marker animates smoothly from start to end along the polyline
+  - Follows the exact path shown on the map (roads, highways, etc.)
+  - Button text changes to "Traverse Route" when a route is available
+
+- 🎯 **Enhanced Proximity Detection**
+  - Detects nearby points of interest along the entire route
+  - Triggers notifications for each location within ~200m of path
+  - Works with multiple locations during a single traversal
+
+- 🔄 **Fallback Behavior**
+  - Reverts to original direct-path simulation when no route is set
+  - Button shows "Simulate Walking" in fallback mode
+  - Maintains backward compatibility with location-only mode
+
 ### Version 1.1.0 - January 10, 2026 (Commit: e9e8b41)
 
 **Route Planning and Navigation Features**
