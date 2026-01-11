@@ -231,43 +231,81 @@ export default function MapComponent({ locations, onNearTarget, routePlaces, onR
     }, [map, routePlaces]);
 
     const startSimulation = () => {
-        if (!map || !userMarker || locations.length === 0) return;
+        if (!map || !userMarker) return;
 
-        // Pick the first location in the list as the target
-        const target = locations[0];
-        const targetPos = { lat: target.lat, lng: target.lng };
-        let currentPos = userMarker.getPosition()?.toJSON() || defaultPos;
+        // If we have a route, traverse along it
+        if (routePolyline) {
+            const path = routePolyline.getPath();
+            const pathArray = path.getArray();
 
-        setIsSimulating(true);
+            if (pathArray.length === 0) return;
 
-        let steps = 0;
-        const maxSteps = 100; // Animation frames
+            setIsSimulating(true);
 
-        simulationInterval.current = setInterval(() => {
-            steps++;
-            // Simple lerp
-            const t = steps / maxSteps;
-            const lat = currentPos.lat + (targetPos.lat - currentPos.lat) * 0.05; // Move 5% towards target each step
-            const lng = currentPos.lng + (targetPos.lng - currentPos.lng) * 0.05;
+            let currentIndex = 0;
+            const totalPoints = pathArray.length;
 
-            currentPos = { lat, lng };
-            userMarker.setPosition(currentPos);
-            map.panTo(currentPos);
+            // Set user marker to start position
+            userMarker.setPosition(pathArray[0]);
+            map.panTo(pathArray[0]);
 
-            // Check distance
-            const dist = Math.sqrt(
-                Math.pow(targetPos.lat - currentPos.lat, 2) +
-                Math.pow(targetPos.lng - currentPos.lng, 2)
-            );
+            simulationInterval.current = setInterval(() => {
+                currentIndex++;
 
-            // Roughly 0.002 degrees is close enough (~200m)
-            if (dist < 0.002) {
-                onNearTarget(target);
-                stopSimulation();
-            }
+                if (currentIndex >= totalPoints) {
+                    // Reached the end
+                    stopSimulation();
+                    return;
+                }
 
-            if (steps >= 1000) stopSimulation(); // Safety break
-        }, 100);
+                const currentPoint = pathArray[currentIndex];
+                userMarker.setPosition(currentPoint);
+                map.panTo(currentPoint);
+
+                // Check proximity to locations along the route
+                locations.forEach(loc => {
+                    const dist = Math.sqrt(
+                        Math.pow(loc.lat - currentPoint.lat(), 2) +
+                        Math.pow(loc.lng - currentPoint.lng(), 2)
+                    );
+                    if (dist < 0.002) {
+                        onNearTarget(loc);
+                    }
+                });
+
+            }, 150); // Slightly slower for smoother animation along path
+        } else if (locations.length > 0) {
+            // Fallback: move towards first location if no route
+            const target = locations[0];
+            const targetPos = { lat: target.lat, lng: target.lng };
+            let currentPos = userMarker.getPosition()?.toJSON() || defaultPos;
+
+            setIsSimulating(true);
+
+            let steps = 0;
+
+            simulationInterval.current = setInterval(() => {
+                steps++;
+                const lat = currentPos.lat + (targetPos.lat - currentPos.lat) * 0.05;
+                const lng = currentPos.lng + (targetPos.lng - currentPos.lng) * 0.05;
+
+                currentPos = { lat, lng };
+                userMarker.setPosition(currentPos);
+                map.panTo(currentPos);
+
+                const dist = Math.sqrt(
+                    Math.pow(targetPos.lat - currentPos.lat, 2) +
+                    Math.pow(targetPos.lng - currentPos.lng, 2)
+                );
+
+                if (dist < 0.002) {
+                    onNearTarget(target);
+                    stopSimulation();
+                }
+
+                if (steps >= 1000) stopSimulation();
+            }, 100);
+        }
     };
 
     const stopSimulation = () => {
@@ -292,11 +330,11 @@ export default function MapComponent({ locations, onNearTarget, routePlaces, onR
             <div className="absolute bottom-8 right-8 z-10">
                 <button
                     onClick={isSimulating ? stopSimulation : startSimulation}
-                    disabled={locations.length === 0}
+                    disabled={!routePolyline && locations.length === 0}
                     className={`flex items-center gap-2 px-6 py-3 rounded-full shadow-lg font-semibold transition-all transform ${isSimulating
                         ? 'bg-red-500 hover:bg-red-600 text-white'
                         : 'bg-blue-600 hover:bg-blue-700 text-white hover:scale-105'
-                        } ${locations.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        } ${!routePolyline && locations.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                     {isSimulating ? (
                         <>
@@ -306,7 +344,7 @@ export default function MapComponent({ locations, onNearTarget, routePlaces, onR
                     ) : (
                         <>
                             <Navigation className="w-5 h-5" />
-                            Simulate Walking
+                            {routePolyline ? 'Traverse Route' : 'Simulate Walking'}
                         </>
                     )}
                 </button>
